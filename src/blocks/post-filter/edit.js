@@ -382,13 +382,19 @@ export default function Edit({ attributes, setAttributes, clientId }) {
 										: "itmar_filter_day",
 							  }
 							: {};
+
 					//ブロックの種別を設定
 					const blockKind =
 						dateOption === "year" || dateOption === "month"
 							? "itmar/design-radio"
 							: "itmar/design-calender";
 					//ブロックの生成
-					const dateSelectBlock = createBlock(blockKind, setDateAttributes, []);
+					const dateSelectBlock = createBlock(
+						blockKind,
+						setDateAttributes.attributes || {},
+						createBlocksFromTree(setDateAttributes.innerBlocks || []),
+					);
+
 					filterBlocksArray.push(dateSelectBlock);
 				}
 				//タームの登録があればチェックボックスにする
@@ -464,6 +470,22 @@ export default function Edit({ attributes, setAttributes, clientId }) {
 		true,
 		{ headingContent: "" },
 	);
+
+	const serializeInnerBlocks = (blocks = []) =>
+		blocks.map((block) => ({
+			name: block.name,
+			attributes: block.attributes,
+			innerBlocks: serializeInnerBlocks(block.innerBlocks || []),
+		}));
+
+	const createBlocksFromTree = (blocks = []) =>
+		blocks.map((block) =>
+			createBlock(
+				block.name,
+				block.attributes,
+				createBlocksFromTree(block.innerBlocks || []),
+			),
+		);
 
 	//設定されたブロックの属性を記録
 	useEffect(() => {
@@ -558,7 +580,12 @@ export default function Edit({ attributes, setAttributes, clientId }) {
 
 			//ブロックの属性を記録
 			if (dayCalenderBolck) {
-				setAttributes({ dayAttributes: dayCalenderBolck.attributes });
+				const dayCalenderAttr = {
+					attributes: dayCalenderBolck.attributes,
+					innerBlocks: serializeInnerBlocks(dayCalenderBolck.innerBlocks || []),
+				};
+				//子ブロックの属性も併せて保存
+				setAttributes({ dayAttributes: dayCalenderAttr });
 			}
 
 			//最初に見つかったitmar_filter_checkboxブロック

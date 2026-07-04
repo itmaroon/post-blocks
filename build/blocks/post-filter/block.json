@@ -360,7 +360,10 @@
     },
     "dayAttributes": {
       "type": "object",
-      "default": {}
+      "default": {
+        "attributes": {},
+        "innerBlocks": []
+      }
     },
     "monthAttributes": {
       "type": "object",

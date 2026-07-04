@@ -346,33 +346,33 @@ function initKeywordSearch(filterRoot, pickupId) {
 	const searchButton = filterRoot.querySelector(
 		".itmar_filter_searchbutton button",
 	);
+
 	if (!searchButton) return;
 
 	const findInputElement = (btnEl) => {
-		// クリックされたボタンの3代上の親要素
-		const greatGrandparent = btnEl.parentElement?.parentElement?.parentElement;
-		if (!greatGrandparent || !greatGrandparent.parentElement) return null;
+		const buttonBlock = btnEl.closest(".wp-block-itmar-design-button");
 
-		// 兄弟要素内の .itmar_filter_searchbox を探す
-		const siblings = [...greatGrandparent.parentElement.children].filter(
-			(el) => el !== greatGrandparent,
+		if (!buttonBlock?.parentElement) return null;
+
+		const siblings = [...buttonBlock.parentElement.children].filter(
+			(el) => el !== buttonBlock,
 		);
 
-		const siblingWithSearchBox = siblings.find((sibling) =>
-			sibling.querySelector(".itmar_filter_searchbox"),
-		);
-		if (!siblingWithSearchBox) return null;
+		for (const sibling of siblings) {
+			const searchBox = sibling.matches(".itmar_filter_searchbox")
+				? sibling
+				: sibling.querySelector(".itmar_filter_searchbox");
 
-		const searchBox = siblingWithSearchBox.querySelector(
-			".itmar_filter_searchbox",
-		);
-		if (!searchBox) return null;
+			const input = searchBox?.querySelector('input[type="text"]');
+			if (input) return input;
+		}
 
-		return searchBox.querySelector('input[type="text"]');
+		return null;
 	};
 
 	const applyKeyword = () => {
 		const inputElement = findInputElement(searchButton);
+
 		if (!inputElement) return;
 
 		const value = inputElement.value || "";

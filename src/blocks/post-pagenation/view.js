@@ -73,7 +73,6 @@ document.addEventListener("DOMContentLoaded", () => {
 		subscribe(pickupId, (ctx) => {
 			const state = ctx.state || {};
 			const dataset = ctx.dataset || {};
-
 			// pickup 側から total が入るまでは描画できないのでガード
 			const total = parseInt(state.total || 0, 10);
 			const currentPage = parseInt(state.page || 0, 10);

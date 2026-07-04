@@ -359,9 +359,12 @@
 			}
 		},
 		
-		"dayAttributes":{
-			"type":"object",
-			"default":{}
+		"dayAttributes": {
+			"type": "object",
+			"default": {
+				"attributes": {},
+				"innerBlocks": []
+			}
 		},
 		"monthAttributes":{
 			"type":"object",

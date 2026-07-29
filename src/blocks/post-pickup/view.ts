@@ -4,7 +4,7 @@ import {
 	subscribe,
 	setState,
 } from "itmar-block-packages";
-import { pickupChange } from "../../front/front-common";
+import { pickupChange } from "../../front-common";
 
 // 「同じ state で二重に pickupChange しない」ためのガード
 const lastRunKey = new Map();
@@ -54,14 +54,14 @@ function parseUrlToInitialState() {
 	};
 }
 
-function prepareSwiperHideWrapper(pickupEl) {
+function prepareSwiperHideWrapper(pickupEl: HTMLElement) {
 	// 既存コードの「swiper-slide を hide-wrapper で包む処理」をそのまま関数化
 	const parentElement = pickupEl.parentElement;
 	if (!parentElement) return;
 
 	const swiperSlides = Array.from(parentElement.children).filter(
 		(child) => child !== pickupEl && child.classList.contains("swiper-slide"),
-	);
+	) as Element[];
 
 	swiperSlides.forEach((slide) => {
 		const wrapper = document.createElement("div");
@@ -77,7 +77,9 @@ function prepareSwiperHideWrapper(pickupEl) {
 document.addEventListener("DOMContentLoaded", () => {
 	const initial = parseUrlToInitialState();
 
-	const pickups = document.querySelectorAll(".wp-block-itmar-pickup-posts");
+	const pickups = document.querySelectorAll<HTMLElement>(
+		".wp-block-itmar-pickup-posts",
+	);
 	pickups.forEach((pickupEl) => {
 		const ctx = registerPickup(pickupEl);
 		if (!ctx) return;
@@ -121,6 +123,7 @@ document.addEventListener("DOMContentLoaded", () => {
 			if (p && typeof p.then === "function") {
 				p.then((res) => {
 					if (!res) return;
+
 					setState(ctxNow.id, {
 						total: res.total ?? 0,
 						posts: res.posts ?? [],

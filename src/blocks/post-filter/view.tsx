@@ -10,7 +10,9 @@ import {
 // リロード判定（新旧ブラウザ対応）
 const __itmar_isReload__ = (() => {
 	try {
-		const nav = performance.getEntriesByType?.("navigation")?.[0];
+		const nav = performance.getEntriesByType?.("navigation")?.[0] as
+			| PerformanceNavigationTiming
+			| undefined;
 		if (nav && nav.type) return nav.type === "reload";
 		return performance?.navigation?.type === 1; // legacy
 	} catch {
@@ -109,7 +111,7 @@ function buildTermQueryObj(filterContainer, taxArray) {
 		filterContainer.querySelectorAll(
 			'.itmar_filter_checkbox input[type="checkbox"]:checked',
 		),
-	);
+	) as HTMLInputElement[];
 
 	const result = [];
 	for (const cb of checked) {
@@ -130,96 +132,134 @@ function buildTermQueryObj(filterContainer, taxArray) {
 	return result;
 }
 
+function removeCheckboxBlock(checkbox: HTMLInputElement) {
+	const filterCheckboxElement = checkbox.closest(".itmar_filter_checkbox");
+	if (!filterCheckboxElement) return;
+
+	const blockElement = filterCheckboxElement.parentElement;
+	const next = blockElement?.nextElementSibling;
+
+	if (blockElement) {
+		blockElement.remove();
+		if (
+			next &&
+			next.tagName === "DIV" &&
+			next.childElementCount === 0 &&
+			(next.textContent || "").trim() === ""
+		) {
+			next.remove();
+		}
+		return;
+	}
+
+	filterCheckboxElement.remove();
+}
+
+function updateCheckboxLabel(
+	blockElement: Element,
+	termKey: string,
+	termLabelMap: Map<string, string>,
+) {
+	const input = blockElement.querySelector<HTMLInputElement>(
+		'input[type="checkbox"]',
+	);
+	if (!input) return null;
+
+	input.setAttribute("name", termKey);
+	input.checked = false;
+
+	const labelDiv = input.parentElement?.nextElementSibling;
+	if (labelDiv && labelDiv.tagName === "DIV") {
+		labelDiv.textContent = termLabelMap.get(termKey) || termKey;
+		return input;
+	}
+
+	const fallback = blockElement.querySelector(".itmar_filter_checkbox div");
+	if (fallback) fallback.textContent = termLabelMap.get(termKey) || termKey;
+	return input;
+}
+
+function findTaxonomyGroups(filterContainer: Element, taxValue: string) {
+	return Array.from(
+		filterContainer.querySelectorAll(".wp-block-itmar-design-group"),
+	).filter(
+		(group) =>
+			group.classList.contains("itmar_filterItem_group") &&
+			group.classList.contains(taxValue),
+	);
+}
+
 // taxArray に存在しない checkbox を削除（元コードの意図を踏襲）
-function pruneInvalidCheckboxes(filterContainer, taxArray) {
-	const checkboxes = filterContainer.querySelectorAll(
-		'.itmar_filter_checkbox input[type="checkbox"]',
-	);
-	// 追加用テンプレ（1つ目の checkbox をテンプレにする）
-	let template = filterContainer.querySelector(
-		".itmar_filter_checkbox",
-	).parentElement;
-	//必要なされたチェックボックスのslug又はidを配列にする
+function pruneInvalidCheckboxes(filterContainer: Element, taxArray) {
+	const taxValues = taxArray.map((tax) => tax.value);
+	const staticFilterValues = ["search", "date"];
 
-	const allTermSlugs = taxArray.flatMap(
-		(tax) => (tax.terms || []).map((term) => String(term.slug || term.id)), //slugはWordPressのターム、idはShopifyカテゴリ
-	);
+	Array.from(
+		filterContainer.querySelectorAll(".wp-block-itmar-design-group"),
+	).forEach((group) => {
+		if (!group.classList.contains("itmar_filterItem_group")) return;
 
-	// taxArray -> key -> label（term.name）マップ
-	const termLabelMap = new Map();
+		const isCurrentTaxGroup = taxValues.some((value) =>
+			group.classList.contains(value),
+		);
+		const isStaticFilterGroup = staticFilterValues.some((value) =>
+			group.classList.contains(value),
+		);
+
+		if (!isCurrentTaxGroup && !isStaticFilterGroup) group.remove();
+	});
+
 	taxArray.forEach((tax) => {
+		const taxGroups = findTaxonomyGroups(filterContainer, tax.value);
+		const taxGroup = taxGroups[0];
+		if (!taxGroup) return;
+
+		taxGroups.slice(1).forEach((group) => group.remove());
+
+		const termKeys = (tax.terms || []).map((term) => String(term.slug || term.id));
+		const termLabelMap = new Map();
 		(tax.terms || []).forEach((term) => {
 			const key = String(term.slug || term.id);
 			const label = String(term.name || key);
 			termLabelMap.set(key, label);
 		});
-	});
 
-	// 既存チェックボックスの name を Set に貯める
-	const renderedSet = new Set();
+		const checkboxes = taxGroup.querySelectorAll(
+			'.itmar_filter_checkbox input[type="checkbox"]',
+		);
+		const renderedSet = new Set();
+		let template: Element | null = null;
 
-	Array.from(checkboxes).forEach((checkbox) => {
-		const checkboxName = checkbox.getAttribute("name"); // ★slug or id
-		if (checkboxName) renderedSet.add(String(checkboxName));
-		//“削除” ロジック
-		if (!allTermSlugs.includes(checkboxName)) {
-			const filterCheckboxElement = checkbox.closest(".itmar_filter_checkbox");
-			if (filterCheckboxElement) {
-				// あなたの元コードは parentElement.remove() だったので、まずそれを優先
-				// ただし消えすぎる場合は filterCheckboxElement.remove() に変えてください
-				if (filterCheckboxElement.parentElement) {
-					const next = filterCheckboxElement.parentElement.nextElementSibling;
-					filterCheckboxElement.parentElement.remove();
-					// もし filterCheckboxElement.parentElement の直後が「区切り用の空div」なら、それも消す（必要なら）
-					if (
-						next &&
-						next.tagName === "DIV" &&
-						next.childElementCount === 0 &&
-						(next.textContent || "").trim() === ""
-					) {
-						next.remove();
-					}
-				} else {
-					filterCheckboxElement.remove();
-				}
+		Array.from(checkboxes as NodeListOf<HTMLInputElement>).forEach((checkbox) => {
+			const checkboxName = checkbox.getAttribute("name");
+			const blockElement = checkbox.closest(".itmar_filter_checkbox")?.parentElement;
+			if (blockElement && !template) template = blockElement.cloneNode(true);
+
+			if (!checkboxName || !termKeys.includes(checkboxName)) {
+				removeCheckboxBlock(checkbox);
+				return;
 			}
+
+			renderedSet.add(String(checkboxName));
+		});
+
+		if (!template) return;
+
+		const frag = document.createDocumentFragment();
+		for (const termKey of termKeys) {
+			if (renderedSet.has(termKey)) continue;
+
+			const clone = template.cloneNode(true) as Element;
+			const input = updateCheckboxLabel(clone, termKey, termLabelMap);
+			if (!input) continue;
+
+			frag.appendChild(clone);
+			frag.appendChild(document.createElement("div"));
+			renderedSet.add(termKey);
 		}
+
+		taxGroup.appendChild(frag);
 	});
-	//“追加” ロジック
-	if (!template) return; // テンプレが無いと clone できない
-	const insertParent = template.parentElement;
-	const frag = document.createDocumentFragment();
-
-	for (const termKey of allTermSlugs) {
-		if (renderedSet.has(termKey)) continue; // 既にあるので追加不要
-		const clone = template.cloneNode(true);
-
-		const input = clone.querySelector('input[type="checkbox"]');
-		if (!input) continue;
-
-		// name を termKey にする
-		input.setAttribute("name", termKey);
-		input.checked = false;
-
-		// ラベル表示を変えたい場合（termの name が取れるならここで）
-		// 構造： <label><input ... /></label><div>ここがラベル</div> を想定
-		const labelDiv = input.parentElement?.nextElementSibling;
-		if (labelDiv && labelDiv.tagName === "DIV") {
-			labelDiv.textContent = termLabelMap.get(termKey) || termKey;
-		} else {
-			// 念のため保険：近い div を探す（構造が少し違う場合）
-			const fallback = item.querySelector(".itmar_filter_checkbox div");
-			if (fallback) fallback.textContent = termLabelMap.get(termKey) || termKey;
-		}
-
-		frag.appendChild(clone);
-		// 次要素との分かれ目（空div）を追加
-		frag.appendChild(document.createElement("div"));
-		renderedSet.add(termKey); // 重複防止
-	}
-
-	// まとめて追加
-	insertParent.appendChild(frag);
 }
 
 //タームチェックによるフィルタ実行関数
@@ -301,7 +341,7 @@ function initTermCheckboxes(filterRoot, pickupId) {
 				'.itmar_filter_checkbox input[type="checkbox"]',
 			);
 
-			Array.from(checkboxes).forEach((checkbox) => {
+			Array.from(checkboxes as NodeListOf<HTMLInputElement>).forEach((checkbox) => {
 				const checkboxName = checkbox.getAttribute("name"); // slug
 				const taxonomy = getTaxonomyFromCheckbox(checkbox, taxArray);
 				if (!taxonomy) return;
@@ -326,7 +366,7 @@ function initTermCheckboxes(filterRoot, pickupId) {
 			'.itmar_filter_checkbox input[type="checkbox"]',
 		);
 
-		Array.from(checkboxes).forEach((checkbox) => {
+		Array.from(checkboxes as NodeListOf<HTMLInputElement>).forEach((checkbox) => {
 			checkbox.addEventListener("change", () => {
 				const termQueryObj = buildTermQueryObj(filterContainer, taxArray);
 

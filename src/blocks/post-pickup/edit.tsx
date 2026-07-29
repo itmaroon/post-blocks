@@ -20,8 +20,7 @@ import {
 	TextControl,
 	SelectControl,
 } from "@wordpress/components";
-import { useEffect, useState, useRef } from "@wordpress/element";
-import { createBlock } from "@wordpress/blocks";
+import { useEffect, useMemo, useState, useRef } from "@wordpress/element";
 
 import {
 	ArchiveSelectControl,
@@ -46,6 +45,61 @@ const custumFieldsToString = (obj, prefix = "") => {
 		}
 	});
 };
+
+const addClassName = (className = "", addClass) => {
+	const classes = String(className || "")
+		.split(" ")
+		.filter(Boolean);
+
+	return classes.includes(addClass)
+		? classes.join(" ")
+		: [...classes, addClass].join(" ");
+};
+
+const mapBlockTree = (block, mapper) => {
+	const mapped = mapper(block);
+	return {
+		...mapped,
+		innerBlocks: (mapped.innerBlocks || []).map((innerBlock) =>
+			mapBlockTree(innerBlock, mapper),
+		),
+	};
+};
+
+const walkBlocks = (blocks, callback) => {
+	blocks.forEach((block) => {
+		callback(block);
+		if (block.innerBlocks?.length) {
+			walkBlocks(block.innerBlocks, callback);
+		}
+	});
+};
+
+const hasBlockName = (blocks, blockName) => {
+	let found = false;
+	walkBlocks(blocks || [], (block) => {
+		if (block.name === blockName) found = true;
+	});
+	return found;
+};
+
+const normalizeGallerySlideClass = (blocks) =>
+	(blocks || []).map((block) =>
+		mapBlockTree(block, (currentBlock) => {
+			if (currentBlock.name !== "itmar/slide-mv") return currentBlock;
+
+			return {
+				...currentBlock,
+				attributes: {
+					...(currentBlock.attributes || {}),
+					className: addClassName(
+						currentBlock.attributes?.className,
+						"sp_field_acf_gallery",
+					),
+				},
+			};
+		}),
+	);
 
 export default function Edit({ attributes, setAttributes, clientId }) {
 	const {
@@ -72,7 +126,8 @@ export default function Edit({ attributes, setAttributes, clientId }) {
 	} = attributes;
 
 	// dispatch関数を取得
-	const { replaceInnerBlocks } = useDispatch("core/block-editor");
+	const { replaceInnerBlocks, updateBlockAttributes } =
+		useDispatch("core/block-editor");
 
 	const style_disp = [
 		__("For landscape images, odd numbers", "query-bloks"),
@@ -117,10 +172,15 @@ export default function Edit({ attributes, setAttributes, clientId }) {
 	//ブロック属性の更新処理
 
 	const lastSerializedRef = useRef(""); // 前回の内容（文字列）を保持
+	const isRebuildingRef = useRef(false);
+
 	useEffect(() => {
+		if (isRebuildingRef.current) return;
+		if (parentBlock?.name === "itmar/slide-mv") return;
 		if (!innerBlocks || innerBlocks.length === 0) return;
 
 		const serialized = innerBlocks.map(serializeBlockTree);
+
 		const nextStr = JSON.stringify(serialized);
 
 		// 内容が同じなら setAttributes しない（再レンダリング抑制）
@@ -131,11 +191,17 @@ export default function Edit({ attributes, setAttributes, clientId }) {
 	}, [innerBlocks, setAttributes]);
 	//親がitmar/slide-mvの場合のブロック属性の更新処理
 	useEffect(() => {
+		if (isRebuildingRef.current) return;
+
 		if (!parentBlock || parentBlock.name !== "itmar/slide-mv") return;
 
-		const slide_innerBlocks = parentBlock.innerBlocks.filter(
-			(block) => block.name !== "itmar/pickup-posts",
-		);
+		const slideCount =
+			pickupType === "single"
+				? 1
+				: (parentBlock?.attributes?.slideInfo?.defaultPerView || 0) + 2;
+		const slide_innerBlocks = parentBlock.innerBlocks
+			.filter((block) => block.name !== "itmar/pickup-posts")
+			.slice(0, slideCount);
 
 		if (slide_innerBlocks.length === 0) return;
 
@@ -145,7 +211,12 @@ export default function Edit({ attributes, setAttributes, clientId }) {
 		if (!isEqual(serialized, attributes.blocksAttributesArray)) {
 			setAttributes({ blocksAttributesArray: serialized });
 		}
-	}, [parentBlock?.innerBlocks, parentBlock?.name]);
+	}, [
+		parentBlock?.innerBlocks,
+		parentBlock?.name,
+		parentBlock?.attributes?.slideInfo?.defaultPerView,
+		pickupType,
+	]);
 
 	//ポストタイプによってblockMapに書き込まれたカスタムフィールドの情報を更新
 	useEffect(() => {
@@ -200,10 +271,20 @@ export default function Edit({ attributes, setAttributes, clientId }) {
 						"featured_media",
 						"link",
 					];
+					const keepSelectedGroupFields = choiceFields.filter(
+						(field) =>
+							typeof field === "string" &&
+							field.includes(".") &&
+							(field.startsWith("acf_") || field.startsWith("meta_")),
+					);
+					const validFields = [
+						...customFieldsArray,
+						...alwaysKeep,
+						...keepSelectedGroupFields,
+					];
 					const filteredBlockMap = Object.fromEntries(
-						Object.entries(blockMap).filter(
-							([key]) =>
-								customFieldsArray.includes(key) || alwaysKeep.includes(key),
+						Object.entries(blockMap).filter(([key]) =>
+							validFields.includes(key),
 						),
 					);
 
@@ -220,9 +301,8 @@ export default function Edit({ attributes, setAttributes, clientId }) {
 
 					setAttributes({ blockMap: newBlockMap });
 					//choiceFieldsから登録されていないカスタムフィールドを除外
-					const filterChoiceFields = choiceFields.filter(
-						(field) =>
-							customFieldsArray.includes(field) || alwaysKeep.includes(field),
+					const filterChoiceFields = choiceFields.filter((field) =>
+						validFields.includes(field),
 					);
 					setAttributes({ choiceFields: filterChoiceFields });
 				} catch (error) {
@@ -234,23 +314,75 @@ export default function Edit({ attributes, setAttributes, clientId }) {
 	}, [selectedRest]);
 
 	//フィールド選択による表示ブロック情報の生成
-	const [selectedFields, setSelectedFields] = useState([]);
+	const selectedFields = useMemo(
+		() =>
+			choiceFields
+				.map((key) => {
+					const block = blockMap[key];
+					if (!block) return null; // blockMapにないキーはスキップ
+
+					return {
+						key, // そのままキー
+						label: __(key, "query-blocks"), // ラベルはキーをもとに翻訳
+						block, // 値はblockMapの値
+					};
+				})
+				.filter(Boolean),
+		[choiceFields, blockMap],
+	);
+
+	const hasExistingGallerySlide =
+		parentBlock?.name === "itmar/slide-mv" &&
+		(hasBlockName(parentBlock.innerBlocks, "itmar/slide-mv") ||
+			hasBlockName(blocksAttributesArray, "itmar/slide-mv"));
+
+	const rebuildSelectedFields = hasExistingGallerySlide
+		? selectedFields.filter(
+				(field) =>
+					!(field.key === "acf_gallery" && field.block === "itmar/slide-mv"),
+		  )
+		: selectedFields;
+
+	const rebuildBlocksAttributesArray = hasExistingGallerySlide
+		? normalizeGallerySlideClass(blocksAttributesArray)
+		: blocksAttributesArray;
+
 	useEffect(() => {
-		const field_choices = choiceFields
-			.map((key) => {
-				const block = blockMap[key];
-				if (!block) return null; // blockMapにないキーはスキップ
+		const gallerySlideField = selectedFields.find(
+			(field) =>
+				field.key === "acf_gallery" && field.block === "itmar/slide-mv",
+		);
+		if (!gallerySlideField) return;
 
-				return {
-					key, // そのままキー
-					label: __(key, "query-blocks"), // ラベルはキーをもとに翻訳
-					block, // 値はblockMapの値
-				};
-			})
-			.filter(Boolean);
+		const fieldClass = "sp_field_acf_gallery";
+		const targetBlocks =
+			parentBlock?.name === "itmar/slide-mv"
+				? parentBlock.innerBlocks
+				: innerBlocks;
 
-		setSelectedFields(field_choices);
-	}, [choiceFields, blockMap]);
+		walkBlocks(targetBlocks || [], (block) => {
+			if (block.name !== "itmar/slide-mv") return;
+
+			const className = addClassName(block.attributes?.className, fieldClass);
+			if (className !== block.attributes?.className) {
+				updateBlockAttributes(block.clientId, { className });
+			}
+		});
+
+		const normalizedBlocks = normalizeGallerySlideClass(blocksAttributesArray);
+
+		if (!isEqual(normalizedBlocks, blocksAttributesArray)) {
+			setAttributes({ blocksAttributesArray: normalizedBlocks });
+		}
+	}, [
+		selectedFields,
+		innerBlocks,
+		parentBlock?.innerBlocks,
+		parentBlock?.name,
+		blocksAttributesArray,
+		updateBlockAttributes,
+		setAttributes,
+	]);
 
 	//表示フィールド変更によるインナーブロックの再構成
 	//ペースト対象のチェック配列
@@ -263,9 +395,10 @@ export default function Edit({ attributes, setAttributes, clientId }) {
 	const domType = parentBlock?.name === "itmar/slide-mv" ? "div" : "form";
 	const insert_id =
 		parentBlock?.name === "itmar/slide-mv" ? parentId : clientId;
+
 	useRebuildChangeField(
-		blocksAttributesArray,
-		selectedFields,
+		rebuildBlocksAttributesArray,
+		rebuildSelectedFields,
 		pickupType,
 		dispTaxonomies,
 		sectionCount,
@@ -273,6 +406,18 @@ export default function Edit({ attributes, setAttributes, clientId }) {
 		clientId,
 		insert_id,
 		"query_blocks",
+		(blocksArray) => {
+			isRebuildingRef.current = true;
+
+			const serialized = blocksArray.map(serializeBlockTree);
+			lastSerializedRef.current = JSON.stringify(serialized);
+
+			setAttributes({ blocksAttributesArray: serialized });
+
+			setTimeout(() => {
+				isRebuildingRef.current = false;
+			}, 0);
+		},
 	);
 
 	//ペースト対象のチェック配列

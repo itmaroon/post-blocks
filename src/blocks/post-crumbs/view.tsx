@@ -1,5 +1,5 @@
+import { createElement } from "react";
 import { createRoot } from "react-dom/client";
-import { RichText } from "@wordpress/block-editor";
 import { format, getSettings } from "@wordpress/date";
 
 import {
@@ -8,10 +8,13 @@ import {
 	ensureCtx,
 	subscribe,
 } from "itmar-block-packages";
-
-// ★あなたの環境に合わせて調整（front-common.js と同等の import でOK）
+import {
+	blockSupportStyleToReactStyle,
+	buildBlockSupportClasses,
+	mergeReactStyles,
+	toReactStyle,
+} from "../../front-common";
 import { StyleComp as StyleGroup } from "../../../../block-collections/src/blocks/design-group/StyleGroup";
-import { StyleComp as StyleTitle } from "../../../../block-collections/src/blocks/design-title/StyleWapper";
 
 const roots = new Map();
 const getRoot = (el) => {
@@ -52,20 +55,14 @@ function renderRichText(
 	titleType,
 	dateFormat,
 	headingType,
-	title_style,
 ) {
 	const disp =
 		titleType === "date"
 			? format(dateFormat, richText, getSettings())
 			: richText;
+	const HeadingTag = String(headingType || "h4").toLowerCase();
 
-	return (
-		<RichText.Content
-			tagName={headingType}
-			value={disp}
-			style={title_style ? title_style : null}
-		/>
-	);
+	return createElement(HeadingTag, null, disp);
 }
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -81,6 +78,16 @@ document.addEventListener("DOMContentLoaded", () => {
 
 		const { block_style: group_style, ...groupAttr } = groupAll;
 		const { block_style: title_style, ...crumbAttr } = crumbAll;
+		const groupStyle = mergeReactStyles(
+			blockSupportStyleToReactStyle(groupAttr),
+			toReactStyle(group_style),
+		);
+		const groupClassName = buildBlockSupportClasses(groupAttr);
+		const titleStyle = mergeReactStyles(
+			blockSupportStyleToReactStyle(crumbAttr),
+			toReactStyle(title_style),
+		);
+		const titleClassName = buildBlockSupportClasses(crumbAttr);
 
 		const { titleType, dateFormat, headingType } = crumbAll;
 
@@ -149,24 +156,35 @@ document.addEventListener("DOMContentLoaded", () => {
 			}
 
 			root.render(
-				<StyleGroup attributes={groupAttr}>
+				<StyleGroup attributes={groupAttr} isMenuOpen={false}>
 					<div
-						className="wp-block-itmar-design-group"
-						style={group_style || null}
+						className={`wp-block-itmar-design-group ${groupClassName}`}
+						style={groupStyle}
 					>
 						<div className="group_contents">
 							{crumbArray
 								.filter((v) => typeof v === "string" && v.trim() !== "")
 								.map((crumb, i) => (
-									<StyleTitle key={i} attributes={crumbAttr}>
-										{renderRichText(
-											crumb,
-											titleType,
-											dateFormat,
-											headingType,
-											title_style,
-										)}
-									</StyleTitle>
+									<div
+										key={i}
+										className={`wp-block-itmar-design-title ${titleClassName}`}
+										data-attributes={JSON.stringify({
+											...crumbAttr,
+											block_style: title_style,
+										})}
+										data-title_type={titleType}
+										data-user_format={dateFormat}
+										style={titleStyle}
+									>
+										<div className="itmar-wrap">
+											{renderRichText(
+												crumb,
+												titleType,
+												dateFormat,
+												headingType,
+											)}
+										</div>
+									</div>
 								))}
 						</div>
 					</div>

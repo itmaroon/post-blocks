@@ -2,22 +2,114 @@ import apiFetch from "@wordpress/api-fetch";
 import { __ } from "@wordpress/i18n";
 import { format, getSettings } from "@wordpress/date";
 
-import { MasonryControl, slideBlockSwiperInit } from "itmar-block-packages";
+import { displayFormated, MasonryControl } from "itmar-block-packages";
+
+type AnyRecord = Record<string, any>;
+
+type QueryValue =
+	| string
+	| number
+	| boolean
+	| null
+	| undefined
+	| string[]
+	| number[];
+type QueryParams = Record<string, QueryValue>;
+type BlockMap = Record<string, string>;
+type BlockSupportAttributes = AnyRecord & {
+	className?: string;
+	textColor?: string;
+	backgroundColor?: string;
+	borderColor?: string;
+	gradient?: string;
+	fontFamily?: string;
+	fontSize?: string;
+	style?: AnyRecord;
+};
+
+type Term = {
+	id: number;
+	slug?: string;
+	name?: string;
+};
+
+type SelectedTerm = {
+	taxonomy: string;
+	term: Term;
+};
+
+type TaxonomyOption = {
+	value: string;
+	terms: Term[];
+};
+
+type MediaSize = {
+	source_url: string;
+	width: number;
+	height?: number;
+};
+
+type MediaInfo = {
+	id: number;
+	source_url: string;
+	alt_text?: string;
+	media_details: {
+		width: number;
+		height: number;
+		sizes: Record<string, MediaSize>;
+	};
+};
+
+type ImageNode = {
+	url: string;
+	alt?: string;
+	type?: string;
+	field?: string;
+};
+
+type PickupPost = AnyRecord & {
+	id?: number;
+	link?: string;
+	acf?: AnyRecord;
+	meta?: AnyRecord;
+	title?: { rendered?: string } | string;
+	excerpt?: { rendered?: string } | string;
+	content?: { rendered?: string } | string;
+	featured_media?: number | MediaInfo;
+};
+
+type SearchResponse = {
+	total?: number;
+	posts?: PickupPost[];
+};
+
+type TaxTermObject = Record<string, string[]>;
+
+type PickupQueryState = {
+	termQueryObj?: SelectedTerm[];
+	termParamObj?: QueryParams | null;
+	periodQueryObj?: QueryParams;
+	periodDisp?: string;
+	searchKeyWord?: string;
+};
 
 //タームによるフィルタを格納する変数
-let termQueryObj = []; //post-filterの入力値（ユーザー入力）
+let termQueryObj: SelectedTerm[] = []; //post-filterの入力値（ユーザー入力）
 //エンコードしたURLパラメータを格納する変数
-let termParamObj = null;
+let termParamObj: QueryParams | null = null;
 
 //期間のオブジェクトを格納する変数
-let periodQueryObj = {};
+let periodQueryObj: QueryParams = {};
 let periodDisp = ""; //post-filterの入力値（ユーザー入力）
 //キーワードを格納する変数
 let searchKeyWord = "";
 //URLパラメータを格納する変数
 let setUrlParam = "";
 
-const getBlockMapValue = (blockMap, fieldName) => {
+const getBlockMapValue = (
+	blockMap: BlockMap,
+	fieldName: string,
+): string | undefined => {
 	//blockMapのキーが.で区切られている場合は、最後の.の後の文字列から
 	for (const key in blockMap) {
 		if (key.includes(".")) {
@@ -32,27 +124,30 @@ const getBlockMapValue = (blockMap, fieldName) => {
 };
 
 //カスタムフィールドを検索する関数
-const searchFieldObjects = (obj, fieldKey) => {
-	let result = null;
-	for (const key in obj) {
-		if (key === fieldKey) {
-			result = obj[key];
-			break;
-		} else if (typeof obj[key] === "object") {
-			const nestedResult = searchFieldObjects(obj[key], fieldKey);
-			if (nestedResult !== null) {
-				result = nestedResult;
-				break;
-			}
+const searchFieldObjects = (obj: unknown, fieldKey: string): unknown => {
+	if (!obj || typeof obj !== "object") return null;
+
+	const keys = fieldKey.split(".");
+	let current: any = obj;
+
+	for (const key of keys) {
+		if (!current || typeof current !== "object" || !(key in current)) {
+			return null;
 		}
+
+		current = current[key];
 	}
 
-	return result;
+	return current;
 };
 
 //RestAPIで投稿データを取得する関数
-const getSearchRecordsFromAPI = async (query) => {
-	const queryString = new URLSearchParams(query).toString();
+const getSearchRecordsFromAPI = async (
+	query: QueryParams,
+): Promise<SearchResponse | undefined> => {
+	const queryString = new URLSearchParams(
+		query as Record<string, string>,
+	).toString();
 
 	try {
 		const response = await fetch(
@@ -69,14 +164,172 @@ const getSearchRecordsFromAPI = async (query) => {
 };
 
 //RestAPIでメディア情報を取得する関数
-const getMediaInfoFromAPI = async (mediaId) => {
+const getMediaInfoFromAPI = async (
+	mediaId: string | number | MediaInfo,
+): Promise<MediaInfo> => {
+	if (typeof mediaId === "object") return mediaId;
 	const path = `/wp/v2/media/${mediaId}`;
 	const mediaInfo = await apiFetch({ path });
-	return mediaInfo;
+	return mediaInfo as MediaInfo;
+};
+
+export const toReactStyle = (style: unknown): AnyRecord | null => {
+	if (!style || typeof style !== "object") return null;
+
+	return Object.fromEntries(
+		Object.entries(style as AnyRecord).map(([key, value]) => [
+			key.startsWith("--")
+				? key
+				: key.replace(/-([a-z])/g, (_, char: string) => char.toUpperCase()),
+			value,
+		]),
+	);
+};
+
+const toCssValue = (value: unknown): unknown => {
+	if (typeof value !== "string") return value;
+
+	const presetMatch = value.match(/^var:preset\|([^|]+)\|(.+)$/);
+	if (presetMatch) {
+		return `var(--wp--preset--${presetMatch[1]}--${presetMatch[2]})`;
+	}
+
+	return value;
+};
+
+const appendBoxStyle = (
+	target: AnyRecord,
+	prefix: string,
+	value: unknown,
+): void => {
+	if (!value) return;
+	if (typeof value === "string") {
+		target[prefix] = toCssValue(value);
+		return;
+	}
+	if (typeof value !== "object") return;
+
+	const propMap = {
+		top: `${prefix}Top`,
+		right: `${prefix}Right`,
+		bottom: `${prefix}Bottom`,
+		left: `${prefix}Left`,
+	};
+
+	Object.entries(propMap).forEach(([key, prop]) => {
+		const boxValue = (value as AnyRecord)[key];
+		if (boxValue != null) target[prop] = toCssValue(boxValue);
+	});
+};
+
+export const blockSupportStyleToReactStyle = (
+	attributes: BlockSupportAttributes,
+): AnyRecord => {
+	const supportStyle = attributes?.style;
+	if (!supportStyle || typeof supportStyle !== "object") return {};
+
+	const result: AnyRecord = {};
+	const spacing = supportStyle.spacing || {};
+	const border = supportStyle.border || {};
+	const typography = supportStyle.typography || {};
+	const color = supportStyle.color || {};
+
+	appendBoxStyle(result, "margin", spacing.margin);
+	appendBoxStyle(result, "padding", spacing.padding);
+
+	if (typeof border.radius === "string") {
+		result.borderRadius = toCssValue(border.radius);
+	} else if (border.radius && typeof border.radius === "object") {
+		if (border.radius.value)
+			result.borderRadius = toCssValue(border.radius.value);
+		if (border.radius.topLeft) {
+			result.borderTopLeftRadius = toCssValue(border.radius.topLeft);
+		}
+		if (border.radius.topRight) {
+			result.borderTopRightRadius = toCssValue(border.radius.topRight);
+		}
+		if (border.radius.bottomRight) {
+			result.borderBottomRightRadius = toCssValue(border.radius.bottomRight);
+		}
+		if (border.radius.bottomLeft) {
+			result.borderBottomLeftRadius = toCssValue(border.radius.bottomLeft);
+		}
+	}
+
+	if (border.width) result.borderWidth = toCssValue(border.width);
+	if (border.style) result.borderStyle = border.style;
+	if (border.color) result.borderColor = toCssValue(border.color);
+
+	if (typography.lineHeight)
+		result.lineHeight = toCssValue(typography.lineHeight);
+	if (typography.letterSpacing) {
+		result.letterSpacing = toCssValue(typography.letterSpacing);
+	}
+	if (typography.fontStyle) result.fontStyle = typography.fontStyle;
+	if (typography.fontWeight) result.fontWeight = typography.fontWeight;
+	if (typography.textDecoration)
+		result.textDecoration = typography.textDecoration;
+	if (typography.textTransform) result.textTransform = typography.textTransform;
+
+	if (color.text) result.color = toCssValue(color.text);
+	if (color.background) result.backgroundColor = toCssValue(color.background);
+	if (color.gradient) result.background = toCssValue(color.gradient);
+
+	return result;
+};
+
+export const mergeReactStyles = (
+	...styles: Array<AnyRecord | null | undefined>
+) => {
+	const merged = Object.assign({}, ...styles.filter(Boolean));
+	return Object.keys(merged).length > 0 ? merged : null;
+};
+
+export const buildBlockSupportClasses = (
+	attributes: BlockSupportAttributes,
+): string => {
+	const classes: string[] = [];
+
+	if (attributes.className) classes.push(attributes.className);
+
+	if (attributes.textColor) {
+		classes.push("has-text-color", `has-${attributes.textColor}-color`);
+	}
+
+	if (attributes.backgroundColor) {
+		classes.push(
+			"has-background",
+			`has-${attributes.backgroundColor}-background-color`,
+		);
+	}
+
+	if (attributes.borderColor) {
+		classes.push(
+			"has-border-color",
+			`has-${attributes.borderColor}-border-color`,
+		);
+	}
+
+	if (attributes.gradient) {
+		classes.push(
+			"has-background",
+			`has-${attributes.gradient}-gradient-background`,
+		);
+	}
+
+	if (attributes.fontFamily) {
+		classes.push(`has-${attributes.fontFamily}-font-family`);
+	}
+
+	if (attributes.fontSize) {
+		classes.push(`has-${attributes.fontSize}-font-size`);
+	}
+
+	return Array.from(new Set(classes.filter(Boolean))).join(" ");
 };
 
 // ACF の値から画像URLを取り出すユーティリティ
-const extractImageUrlFromAcfValue = (value) => {
+const extractImageUrlFromAcfValue = (value: unknown): string | null => {
 	if (!value) return null;
 
 	// URL文字列そのもの
@@ -87,19 +340,23 @@ const extractImageUrlFromAcfValue = (value) => {
 
 	// オブジェクト形式 { url: "..."} や { sizes: { large: "..." } }
 	if (typeof value === "object") {
-		if (value.url) return value.url;
-		if (value.sizes?.large) return value.sizes.large;
-		if (value.sizes?.full) return value.sizes.full;
+		const imageValue = value as {
+			url?: string;
+			sizes?: { large?: string; full?: string };
+		};
+		if (imageValue.url) return imageValue.url;
+		if (imageValue.sizes?.large) return imageValue.sizes.large;
+		if (imageValue.sizes?.full) return imageValue.sizes.full;
 	}
 
 	return null;
 };
 
 // ネストパス（"option_img_group.option_1" など）でオブジェクトを辿る
-const getNested = (obj, pathStr) => {
+const getNested = (obj: unknown, pathStr: string): unknown => {
 	if (!obj || !pathStr) return undefined;
 	const keys = pathStr.split(".");
-	let cur = obj;
+	let cur: any = obj;
 	for (const key of keys) {
 		if (cur == null) return undefined;
 		cur = cur[key];
@@ -107,16 +364,22 @@ const getNested = (obj, pathStr) => {
 	return cur;
 };
 
-const getSelectedTaxonomyTerms = (choiceTerms, taxRelateType) => {
-	const taxonomyTerms = choiceTerms.reduce((acc, { taxonomy, term }) => {
-		if (acc.hasOwnProperty(taxonomy)) {
-			acc[taxonomy] = `${acc[taxonomy]},${term.id}`;
-		} else {
-			acc[taxonomy] = term.id;
-		}
+const getSelectedTaxonomyTerms = (
+	choiceTerms: SelectedTerm[],
+	taxRelateType?: string,
+): QueryParams => {
+	const taxonomyTerms = choiceTerms.reduce<QueryParams>(
+		(acc, { taxonomy, term }) => {
+			if (acc.hasOwnProperty(taxonomy)) {
+				acc[taxonomy] = `${acc[taxonomy]},${term.id}`;
+			} else {
+				acc[taxonomy] = term.id;
+			}
 
-		return acc;
-	}, {});
+			return acc;
+		},
+		{},
+	);
 
 	return {
 		...taxonomyTerms,
@@ -126,17 +389,17 @@ const getSelectedTaxonomyTerms = (choiceTerms, taxRelateType) => {
 
 //フロントエンドで取得した投稿データで書き換える関数
 const ModifyFieldElement = async (
-	element,
-	post,
-	taxTermObjects,
-	blockMap,
-	post_num,
-) => {
+	element: Element,
+	post: PickupPost,
+	taxTermObjects: TaxTermObject[],
+	blockMap: BlockMap,
+	post_num: number,
+	urlParam = setUrlParam,
+): Promise<void> => {
 	// 最上位要素がa要素の時はそのhref属性を書き換え
 	if (element && element.tagName === "A") {
-		element.setAttribute("href", post.link);
+		element.setAttribute("href", post.link || "");
 	}
-
 	//静的コレクションで取得すること
 	const allElements = element.querySelectorAll("*");
 
@@ -145,7 +408,8 @@ const ModifyFieldElement = async (
 		const el = allElements[i];
 
 		// 要素のクラス名を取得
-		const classNames = el.className.split(" ");
+		const classNames =
+			typeof el.className === "string" ? el.className.split(" ") : [];
 
 		// field_を含むクラス名があるかチェック
 		const hasFieldClass = classNames.some((className) =>
@@ -159,6 +423,7 @@ const ModifyFieldElement = async (
 			);
 
 			// field_を除いたクラス名を取得
+			if (!fieldClassName) continue;
 			const fieldName = fieldClassName.replace("sp_field_", "");
 			// postオブジェクト内で、そのクラス名をキーとする値を取得
 
@@ -168,8 +433,9 @@ const ModifyFieldElement = async (
 				{ ...post.acf, ...post.meta },
 				fieldNameWithoutPrefix,
 			);
+
 			//ビルトインのフィールド名があればその値をとり、なければカスタムフィールドの値をとる
-			const fieldValue = post[fieldName] || costumFieldValue;
+			const fieldValue = (post[fieldName] || costumFieldValue) as any;
 
 			//フィールドとブロックの対応マップからブロック名を抽出
 			const blockName = getBlockMapValue(blockMap, fieldName);
@@ -180,38 +446,41 @@ const ModifyFieldElement = async (
 					//クラス名にitmar_link_blockが含まれるときに処理
 					if (classNames.includes("itmar_link_block")) {
 						const aElement = el.querySelector("a");
-						aElement.setAttribute("href", fieldValue);
+						aElement?.setAttribute("href", String(fieldValue));
 					} else {
 						//クラス名にitmar_link_blockが含まれないときに処理
 						const hElement = el.querySelector("h1, h2, h3, h4, h5, h6");
 
 						if (hElement) {
-							// h要素内のdivを探す
-							//const divElement = hElement.querySelector("div");
-
 							//titleTypeを取り出す
 							const titleType = el.getAttribute("data-title_type");
 
 							// divのテキストノードを書き換える
+							let dispContent = "";
 							if (fieldName === "date") {
 								//デザインタイトルのタイトルタイプがdateならフォーマットをあてる
 								if (titleType === "date") {
 									//date_formatを取り出す
 									const dateFormat =
 										el.getAttribute("data-user_format") || "%s";
-									hElement.textContent = format(
-										dateFormat,
-										fieldValue,
-										getSettings(),
-									);
+									dispContent = format(dateFormat, fieldValue, getSettings());
 								} else {
-									hElement.textContent = fieldValue;
+									dispContent = fieldValue;
 								}
 							} else if (fieldName === "title") {
-								hElement.textContent = fieldValue.rendered;
+								dispContent = fieldValue.rendered;
 							} else {
-								hElement.textContent = fieldValue;
+								dispContent = fieldValue;
 							}
+
+							const formatContent = displayFormated(
+								dispContent,
+								el.getAttribute("data-user_format"),
+								el.getAttribute("data-free_format"),
+								el.getAttribute("data-decimal"),
+							);
+
+							hElement.textContent = formatContent;
 						}
 					}
 
@@ -228,6 +497,7 @@ const ModifyFieldElement = async (
 					break;
 				case "core/image":
 					const iElement = el.querySelector("img");
+					if (!iElement) break;
 					// 現在のmediaIdを取得（イメージ要素にクラス名がある場合）
 					const currentMediaId = iElement.classList
 						.toString()
@@ -249,7 +519,9 @@ const ModifyFieldElement = async (
 
 						// img要素の属性を更新
 						iElement.src = fieldValue.source_url;
-						iElement.srcset = Object.entries(fieldValue.media_details.sizes)
+						iElement.srcset = Object.entries(
+							fieldValue.media_details.sizes as Record<string, MediaSize>,
+						)
 							.map(([name, size]) => `${size.source_url} ${size.width}w`)
 							.join(", ");
 						iElement.width = fieldValue.media_details.width;
@@ -263,15 +535,11 @@ const ModifyFieldElement = async (
 					break;
 				case "itmar/design-button":
 					const buttonElement = el.querySelector("button");
-					const valWithPrm = `${fieldValue}${setUrlParam}`;
+					if (!buttonElement) break;
+					const valWithPrm = `${fieldValue}${urlParam}`;
 					buttonElement.setAttribute("data-selected_page", valWithPrm);
 					break;
 				case "itmar/slide-mv":
-					//swiper初期化
-					// const swiperEl = reBuildSwiper(el, post_num, fieldValue);
-					// if (swiperEl) {
-					// 	slideBlockSwiperInit(swiperEl);
-					// }
 					jQuery(function ($) {
 						const $el = $(el);
 
@@ -292,7 +560,9 @@ const ModifyFieldElement = async (
 						Object.entries(classPrefixMap).forEach(([suffix, baseClass]) => {
 							const $target = clone_swiper.parent().find(`.${baseClass}`);
 							$target.each(function () {
-								const currentClasses = $(this).attr("class").split(/\s+/);
+								const currentClasses = ($(this).attr("class") || "").split(
+									/\s+/,
+								);
 								const filteredClasses = currentClasses.filter(
 									(cls) => cls === baseClass,
 								);
@@ -310,7 +580,7 @@ const ModifyFieldElement = async (
 						const newWrapper = $('<div class="swiper-wrapper"></div>');
 						// valueの件数にあわせて、ひな型を複製
 						if (fieldValue) {
-							fieldValue.forEach((imgNode) => {
+							(fieldValue as ImageNode[]).forEach((imgNode) => {
 								const newSlide = templateSlide.clone(true); // trueでイベントもコピー
 								//img要素を取り出し画像を差し替え
 								const $img = newSlide.find("img").first();
@@ -323,8 +593,6 @@ const ModifyFieldElement = async (
 						}
 						//新しいswiper-wrapperを追加
 						clone_swiper.append(newWrapper);
-
-						slideBlockSwiperInit(clone_swiper[0]);
 					});
 					break;
 			}
@@ -342,6 +610,7 @@ const ModifyFieldElement = async (
 					className.startsWith("tax_"),
 				);
 				// tax_を除いたクラス名を取得
+				if (!taxClassName) continue;
 				const taxName = taxClassName.replace("tax_", "");
 				//親要素を取得
 				const parent = el.parentElement;
@@ -367,24 +636,22 @@ const ModifyFieldElement = async (
 					// values が配列であることを想定（ターム名の配列）
 					values.forEach((termName, index) => {
 						// 1つ目のタームは元の el を使い、それ以降は複製して兄弟要素に追加
-						const cloneTermElm = index === 0 ? el : el.cloneNode(true);
+						const cloneTermElm = (
+							index === 0 ? el : el.cloneNode(true)
+						) as Element;
 
 						// hタグ内の要素を書き換え
 						const hTags = cloneTermElm.querySelectorAll(
 							"h1, h2, h3, h4, h5, h6",
 						);
 						hTags.forEach((hTag) => {
-							// h タグ内の <div> 要素を探す
-							const divTag = hTag.querySelector("div");
-							if (divTag) {
-								// <div> のテキストノードを termName に書き換え
-								divTag.textContent = termName;
-							}
+							// h タグテキストノードを termName に書き換え
+							hTag.textContent = termName;
 						});
 
 						// 2個目以降は DOM に追加
 						if (index > 0) {
-							parent.appendChild(cloneTermElm);
+							parent?.appendChild(cloneTermElm);
 						}
 					});
 				}
@@ -396,7 +663,8 @@ const ModifyFieldElement = async (
 		if (hasMasonryClass) {
 			// ★ この el がマソンリーのグリッド要素
 			const gridEl = el.querySelector(".itmar-masonry-grid");
-			let images = [];
+			if (!gridEl) continue;
+			let images: ImageNode[] = [];
 
 			//レスポンシブのフラグ
 			const isMobile =
@@ -424,7 +692,14 @@ const ModifyFieldElement = async (
 				for (const field of choiceFields) {
 					// 本文内の画像 (content)
 					if (field === "content") {
-						const html = post?.content?.rendered || post?.content || "";
+						const content = post.content as
+							| { rendered?: string }
+							| string
+							| undefined;
+						const html =
+							typeof content === "object"
+								? content.rendered || ""
+								: content || "";
 						if (html) {
 							const tmp = document.createElement("div");
 							tmp.innerHTML = html;
@@ -443,11 +718,15 @@ const ModifyFieldElement = async (
 					}
 					// アイキャッチ画像 (featured_media)
 					else if (field === "featured_media") {
-						const url = post.featured_media.source_url;
+						const featuredMedia = post.featured_media as MediaInfo | undefined;
+						const url = featuredMedia?.source_url;
 						if (url) {
 							images.push({
 								url,
-								alt: post.title?.rendered || post.title || "",
+								alt:
+									typeof post.title === "object"
+										? post.title?.rendered || ""
+										: post.title || "",
 								type: "featured_media",
 								field: "featured_media",
 							});
@@ -460,7 +739,7 @@ const ModifyFieldElement = async (
 						const acfRoot = post.acf || {};
 						const value = getNested(acfRoot, acfPath);
 
-						if (!value) return;
+						if (!value) continue;
 
 						// gallery (配列) の場合
 						if (Array.isArray(value)) {
@@ -469,7 +748,7 @@ const ModifyFieldElement = async (
 								if (url) {
 									images.push({
 										url,
-										alt: item?.alt || "",
+										alt: (item as { alt?: string })?.alt || "",
 										type: "acf_gallery",
 										field,
 									});
@@ -477,7 +756,9 @@ const ModifyFieldElement = async (
 							});
 						} else {
 							// 単一画像フィールド
-							const media_info = await getMediaInfoFromAPI(value);
+							const media_info = await getMediaInfoFromAPI(
+								value as string | number | MediaInfo,
+							);
 							if (media_info) {
 								images.push({
 									url: media_info.source_url,
@@ -508,9 +789,8 @@ const ModifyFieldElement = async (
 					: JSON.parse(gridEl.getAttribute("data-default-media"));
 			}
 
-			//swiperを検出して初期化
+			//swiperのスライドDOMを再構築
 			const swiperEls = el.querySelectorAll(".swiper");
-			let expand_masonry = null;
 			if (swiperEls.length > 0) {
 				// swiperEls は NodeList
 				swiperEls.forEach((el) => {
@@ -532,7 +812,9 @@ const ModifyFieldElement = async (
 						Object.entries(classPrefixMap).forEach(([suffix, baseClass]) => {
 							const $target = clone_swiper.parent().find(`.${baseClass}`);
 							$target.each(function () {
-								const currentClasses = $(this).attr("class").split(/\s+/);
+								const currentClasses = ($(this).attr("class") || "").split(
+									/\s+/,
+								);
 								const filteredClasses = currentClasses.filter(
 									(cls) => cls === baseClass,
 								);
@@ -564,8 +846,6 @@ const ModifyFieldElement = async (
 
 						//新しいswiper-wrapperを追加
 						clone_swiper.append(newWrapper);
-
-						expand_masonry = slideBlockSwiperInit(clone_swiper[0]);
 					});
 				});
 			}
@@ -573,14 +853,27 @@ const ModifyFieldElement = async (
 			jQuery(function ($) {
 				$(gridEl).on("click", ".itmar-masonry-link", function (e) {
 					e.preventDefault();
+
 					const $link = $(this);
-					const index = parseInt($link.data("masonry-index") || 0, 10);
 
-					expand_masonry.instance.slideTo(index);
+					const index = parseInt(String($link.data("masonry-index") || 0), 10);
 
-					expand_masonry.instance.update();
 					const $blockRoot = $(this).closest(".wp-block-itmar-masonry-mv");
-					$blockRoot.find(".itmar-masonry-inner-blocks").children().show();
+					const $innerBlocks = $blockRoot.find(".itmar-masonry-inner-blocks");
+
+					// query-blocksは表示とスライド番号の通知だけを担当する。
+					$innerBlocks.children().show();
+
+					$innerBlocks
+						.find(".wp-block-itmar-slide-mv .swiper")
+						.each(function () {
+							this.dispatchEvent(
+								new CustomEvent("itmar:slide-mv-request", {
+									bubbles: true,
+									detail: { index },
+								}),
+							);
+						});
 				});
 			});
 		}
@@ -588,7 +881,7 @@ const ModifyFieldElement = async (
 };
 
 //クローン生成の関数
-const buildClone = (selected) => {
+const buildClone = (selected: Element): Element => {
 	const $clone = jQuery(selected).clone();
 	$clone
 		.find(
@@ -605,13 +898,15 @@ const buildClone = (selected) => {
 
 //テンプレートにコンテンツを流し込む関数
 const replaceContent = async (
-	pickpData,
-	target_block,
-	block_map,
-	fillFlg,
-	pickupType,
-	dispTaxonomies,
-) => {
+	pickpData: PickupPost[],
+	target_block: Element | null,
+	block_map: BlockMap,
+	fillFlg: boolean,
+	pickupType: string | undefined,
+	dispTaxonomies: string[],
+	urlParam = setUrlParam,
+): Promise<void> => {
+	if (!target_block) return;
 	//通常のpickup
 	if (!fillFlg) {
 		const template = target_block.querySelector(".template_unit");
@@ -646,17 +941,18 @@ const replaceContent = async (
 			let clone = buildClone(selected);
 
 			//投稿に紐づいたターム情報を取得
-			const taxTermObjects = [];
-			const def_tax_map = {
+			const taxTermObjects: TaxTermObject[] = [];
+			const def_tax_map: Record<string, string> = {
 				category: "categories",
 				post_tag: "tags",
 				// 例: カスタムタクソノミー 'product_cat' が REST で /wp/v2/product_cat ならそのまま
 			};
+
 			for (const tax of dispTaxonomies) {
 				const endpoint = def_tax_map[tax] ?? tax;
-				const term_info = await apiFetch({
+				const term_info = (await apiFetch({
 					path: `/wp/v2/${endpoint}?post=${pickup.id}`,
-				});
+				})) as Array<{ name: string }>;
 
 				// ターム名だけの配列を作成
 				const termNames = term_info.map((term) => term.name);
@@ -670,12 +966,19 @@ const replaceContent = async (
 			}
 
 			//ブロック要素にデータを注入する
-			ModifyFieldElement(clone, pickup, taxTermObjects, block_map, i);
+			void ModifyFieldElement(
+				clone,
+				pickup,
+				taxTermObjects,
+				block_map,
+				i,
+				urlParam,
+			);
 			//データ注入後にブロック挿入
 			target_block.appendChild(clone);
 		}
 		//ひな型部分は非表示
-		template.style.display = "none"; // jQueryの .hide() 相当
+		(template as HTMLElement).style.display = "none"; // jQueryの .hide() 相当
 		//template 内の .hide-wrapper を全部探す
 		const wrappers = template.querySelectorAll(".hide-wrapper");
 		wrappers.forEach((wrapper) => {
@@ -700,7 +1003,16 @@ const replaceContent = async (
 					pickup.featured_media = mediaInfo;
 				}
 			}
-			ModifyFieldElement(target_array[i], pickup, [], block_map, i);
+			if (target_array[i]) {
+				void ModifyFieldElement(
+					target_array[i],
+					pickup,
+					[],
+					block_map,
+					i,
+					urlParam,
+				);
+			}
 		}
 		target_array.forEach((parent) => {
 			if (!parent) return;
@@ -724,7 +1036,11 @@ const replaceContent = async (
 };
 
 //テンプレートを選択する関数
-function selectTemplateUnit(templateUnits, aspectRatio, itmNum) {
+function selectTemplateUnit(
+	templateUnits: Element[],
+	aspectRatio: number,
+	itmNum: number,
+): Element | undefined {
 	let retTemplate;
 	if (aspectRatio > 1.2 && itmNum % 2 !== 0) {
 		retTemplate = templateUnits[0];
@@ -742,11 +1058,16 @@ function selectTemplateUnit(templateUnits, aspectRatio, itmNum) {
 
 //ピックアップ投稿の表示（ダイナミックブロックと同様の表示）・ページネーションの処理
 export const pickupChange = (
-	pickup,
-	fillFlg,
+	pickup: HTMLElement,
+	fillFlg: boolean,
 	currentPage = 0,
-	queryState = null,
-) => {
+	queryState: PickupQueryState | null = null,
+): Promise<{
+	total: number;
+	posts: PickupPost[];
+	rawPosts: PickupPost[];
+	targetIndex: number;
+} | void> | void => {
 	const pickupId = pickup.dataset.pickup_id;
 	const pickupType = pickup.dataset.pickup_type;
 	const pickupQury = pickup.dataset.pickup_query;
@@ -754,13 +1075,15 @@ export const pickupChange = (
 	//const selectedRest = pickup.dataset.selected_rest;
 	const selectedSlug = pickup.dataset.selected_slug;
 	const taxRelateType = pickup.dataset.tax_relate_type;
-	const searchFields = JSON.parse(pickup.dataset.search_fields); //検索対象のカスタムフィールド
-	const choiceFields = JSON.parse(pickup.dataset.choice_fields);
-	const dispTaxonomies = JSON.parse(pickup.dataset.disp_taxonomies);
-	const blockMap = JSON.parse(pickup.dataset.block_map);
+	const searchFields = JSON.parse(pickup.dataset.search_fields || "[]"); //検索対象のカスタムフィールド
+	const choiceFields = JSON.parse(pickup.dataset.choice_fields || "[]");
+	const dispTaxonomies = JSON.parse(
+		pickup.dataset.disp_taxonomies || "[]",
+	) as string[];
+	const blockMap = JSON.parse(pickup.dataset.block_map || "{}") as BlockMap;
 
 	// ✅ Store 等から渡された state を優先（なければ従来のグローバルを使う）
-	const qs = queryState || {};
+	const qs: PickupQueryState = queryState || {};
 	const _termQueryObj = qs.termQueryObj ?? termQueryObj;
 	const _termParamObj = qs.termParamObj ?? termParamObj;
 	const _periodQueryObj = qs.periodQueryObj ?? periodQueryObj;
@@ -780,11 +1103,11 @@ export const pickupChange = (
 		wrapper.className = "hide-wrapper";
 
 		// el の前に wrapper を挿入して、el を wrapper の中に移動
-		el.parentNode.insertBefore(wrapper, el);
+		el.parentNode?.insertBefore(wrapper, el);
 		wrapper.appendChild(el);
 
 		// 中身を非表示
-		el.style.visibility = "hidden";
+		(el as HTMLElement).style.visibility = "hidden";
 	});
 
 	//swiperが親要素でない場合
@@ -792,7 +1115,7 @@ export const pickupChange = (
 		//ひな型部分を表示
 		const template = pickup.querySelector(".template_unit");
 		if (!template) return; // 念のため防御
-		template.style.display = "block";
+		(template as HTMLElement).style.display = "block";
 
 		// まず .template_unit 以外の子要素を削除
 		Array.from(pickup.children).forEach((child) => {
@@ -841,7 +1164,7 @@ export const pickupChange = (
 		currentUrl.searchParams.delete("period");
 	}
 
-	if (_termQueryObj.length == 0 && !_termParamObj) {
+	if (_termQueryObj.length === 0 && !_termParamObj) {
 		currentUrl.searchParams.delete("terms");
 	} else {
 		currentUrl.searchParams.set("terms", JSON.stringify(selectTerms));
@@ -876,27 +1199,28 @@ export const pickupChange = (
 	return getSearchRecordsFromAPI(query)
 		.then((data) => {
 			let targetIndex = -1;
-			const rawPosts = data?.posts ?? [];
+			const rawPosts: PickupPost[] = data?.posts ?? [];
 
-			let postsToRender = [];
+			let postsToRender: PickupPost[] = [];
 			if (pickupType === "multi") {
 				postsToRender = rawPosts;
 			} else {
-				targetIndex = rawPosts.findIndex((post) =>
-					post.link?.includes(itmar_post_option?.slug),
+				targetIndex = rawPosts.findIndex(
+					(post) => post.link?.includes(itmar_post_option?.slug || ""),
 				);
 				if (targetIndex !== -1) postsToRender = [rawPosts[targetIndex]];
 			}
 
 			const target_block = !fillFlg ? pickup : pickup.parentElement;
 
-			replaceContent(
+			void replaceContent(
 				postsToRender,
 				target_block,
 				blockMap,
 				fillFlg,
 				pickupType,
 				dispTaxonomies,
+				_setUrlParam,
 			);
 
 			const total = data?.total ?? 0;
@@ -911,13 +1235,18 @@ export const pickupChange = (
 		.catch((error) => console.error(error));
 };
 
-export const paramToObject = (prm, taxArray) => {
+export const paramToObject = (
+	prm: QueryParams,
+	taxArray: TaxonomyOption[],
+): SelectedTerm[] => {
 	return Object.entries(prm)
-		.filter(([key, value]) => key !== "tax_relation") // 不要なキーを除外
+		.filter(([key]) => key !== "tax_relation") // 不要なキーを除外
 		.flatMap(([key, value]) => {
 			// カンマ区切りを配列化して処理
 			const values =
-				typeof value === "string" ? value.split(",").map(Number) : [value];
+				typeof value === "string"
+					? value.split(",").map(Number)
+					: [Number(value)];
 			return values.flatMap((val) =>
 				taxArray.flatMap((item) =>
 					item.terms

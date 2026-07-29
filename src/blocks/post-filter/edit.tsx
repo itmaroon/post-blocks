@@ -60,6 +60,14 @@ const flattenBlocks = (blocks) => {
 	}, []);
 };
 
+const addClassName = (className = "", addClass) => {
+	const classes = String(className || "")
+		.split(" ")
+		.filter(Boolean);
+
+	return classes.includes(addClass) ? classes.join(" ") : [...classes, addClass].join(" ");
+};
+
 //期間の設定から選択できる月の情報オブジェクトを配列にする関数
 function generateDateArray(dateObj, isMonth) {
 	const { startYear, startMonth, endYear, endMonth } = dateObj;
@@ -371,17 +379,18 @@ export default function Edit({ attributes, setAttributes, clientId }) {
 											: `${monthAttributes.className} itmar_filter_month`
 										: "itmar_filter_month",
 							  }
-							: dateOption === "day"
-							? {
-									...dayAttributes,
-									//dateSpan: dateSpan,
-									className: dayAttributes.className
-										? dayAttributes.className.includes("itmar_filter_day")
-											? dayAttributes.className
-											: `${dayAttributes.className} itmar_filter_day`
-										: "itmar_filter_day",
-							  }
-							: {};
+					: dateOption === "day"
+					? {
+							attributes: {
+								...(dayAttributes.attributes || {}),
+								className: addClassName(
+									dayAttributes.attributes?.className,
+									"itmar_filter_day",
+								),
+							},
+							innerBlocks: dayAttributes.innerBlocks || [],
+					  }
+					: {};
 
 					//ブロックの種別を設定
 					const blockKind =
@@ -391,7 +400,7 @@ export default function Edit({ attributes, setAttributes, clientId }) {
 					//ブロックの生成
 					const dateSelectBlock = createBlock(
 						blockKind,
-						setDateAttributes.attributes || {},
+						setDateAttributes.attributes || setDateAttributes || {},
 						createBlocksFromTree(setDateAttributes.innerBlocks || []),
 					);
 
@@ -572,16 +581,32 @@ export default function Edit({ attributes, setAttributes, clientId }) {
 			}
 
 			//最初に見つかったitmar_filter_dayブロック
-			const dayCalenderBolck = allFlattenedBlocks.find(
-				(block) =>
-					block.name === "itmar/design-calender" &&
-					block.attributes.className?.split(" ").includes("itmar_filter_day"),
-			);
+			const dayCalenderBolck =
+				innerFlattenedBlocks.find(
+					(block) =>
+						block.name === "itmar/design-calender" &&
+						block.attributes.className?.split(" ").includes("itmar_filter_day"),
+				) ||
+				(dateOption === "day"
+					? innerFlattenedBlocks.find(
+							(block) => block.name === "itmar/design-calender",
+					  )
+					: null);
 
 			//ブロックの属性を記録
 			if (dayCalenderBolck) {
+				const className = addClassName(
+					dayCalenderBolck.attributes.className,
+					"itmar_filter_day",
+				);
+				if (dayCalenderBolck.attributes.className !== className) {
+					updateBlockAttributes(dayCalenderBolck.clientId, { className });
+				}
 				const dayCalenderAttr = {
-					attributes: dayCalenderBolck.attributes,
+					attributes: {
+						...dayCalenderBolck.attributes,
+						className,
+					},
 					innerBlocks: serializeInnerBlocks(dayCalenderBolck.innerBlocks || []),
 				};
 				//子ブロックの属性も併せて保存
@@ -697,7 +722,7 @@ export default function Edit({ attributes, setAttributes, clientId }) {
 	);
 
 	//フィルタの選択に使用するチェックボックス
-	const FilterCheckbox = ({ filter, isChecked }) => {
+	const FilterCheckbox = ({ filter, isChecked }: { filter: any; isChecked: any; key?: any }) => {
 		return (
 			<CheckboxControl
 				className="filter_check"

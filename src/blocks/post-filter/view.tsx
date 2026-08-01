@@ -10,11 +10,11 @@ import {
 // リロード判定（新旧ブラウザ対応）
 const __itmar_isReload__ = (() => {
 	try {
-		const nav = performance.getEntriesByType?.("navigation")?.[0] as
+		const nav = performance.getEntriesByType("navigation")[0] as
 			| PerformanceNavigationTiming
 			| undefined;
-		if (nav && nav.type) return nav.type === "reload";
-		return performance?.navigation?.type === 1; // legacy
+
+		return nav?.type === "reload";
 	} catch {
 		return false;
 	}
@@ -216,7 +216,9 @@ function pruneInvalidCheckboxes(filterContainer: Element, taxArray) {
 
 		taxGroups.slice(1).forEach((group) => group.remove());
 
-		const termKeys = (tax.terms || []).map((term) => String(term.slug || term.id));
+		const termKeys = (tax.terms || []).map((term) =>
+			String(term.slug || term.id),
+		);
 		const termLabelMap = new Map();
 		(tax.terms || []).forEach((term) => {
 			const key = String(term.slug || term.id);
@@ -230,18 +232,24 @@ function pruneInvalidCheckboxes(filterContainer: Element, taxArray) {
 		const renderedSet = new Set();
 		let template: Element | null = null;
 
-		Array.from(checkboxes as NodeListOf<HTMLInputElement>).forEach((checkbox) => {
-			const checkboxName = checkbox.getAttribute("name");
-			const blockElement = checkbox.closest(".itmar_filter_checkbox")?.parentElement;
-			if (blockElement && !template) template = blockElement.cloneNode(true);
+		Array.from(checkboxes as NodeListOf<HTMLInputElement>).forEach(
+			(checkbox) => {
+				const checkboxName = checkbox.getAttribute("name");
+				const blockElement = checkbox.closest(".itmar_filter_checkbox")
+					?.parentElement;
 
-			if (!checkboxName || !termKeys.includes(checkboxName)) {
-				removeCheckboxBlock(checkbox);
-				return;
-			}
+				if (blockElement && !template) {
+					template = blockElement.cloneNode(true) as Element;
+				}
 
-			renderedSet.add(String(checkboxName));
-		});
+				if (!checkboxName || !termKeys.includes(checkboxName)) {
+					removeCheckboxBlock(checkbox);
+					return;
+				}
+
+				renderedSet.add(String(checkboxName));
+			},
+		);
 
 		if (!template) return;
 
@@ -341,17 +349,19 @@ function initTermCheckboxes(filterRoot, pickupId) {
 				'.itmar_filter_checkbox input[type="checkbox"]',
 			);
 
-			Array.from(checkboxes as NodeListOf<HTMLInputElement>).forEach((checkbox) => {
-				const checkboxName = checkbox.getAttribute("name"); // slug
-				const taxonomy = getTaxonomyFromCheckbox(checkbox, taxArray);
-				if (!taxonomy) return;
+			Array.from(checkboxes as NodeListOf<HTMLInputElement>).forEach(
+				(checkbox) => {
+					const checkboxName = checkbox.getAttribute("name"); // slug
+					const taxonomy = getTaxonomyFromCheckbox(checkbox, taxArray);
+					if (!taxonomy) return;
 
-				const match = termQueryObj.some(
-					(item) =>
-						item.taxonomy === taxonomy && item.term.slug === checkboxName,
-				);
-				checkbox.checked = match;
-			});
+					const match = termQueryObj.some(
+						(item) =>
+							item.taxonomy === taxonomy && item.term.slug === checkboxName,
+					);
+					checkbox.checked = match;
+				},
+			);
 
 			// store にも入れておく（pickupChange 側でも使える）
 			setState(pickupId, {
@@ -366,17 +376,19 @@ function initTermCheckboxes(filterRoot, pickupId) {
 			'.itmar_filter_checkbox input[type="checkbox"]',
 		);
 
-		Array.from(checkboxes as NodeListOf<HTMLInputElement>).forEach((checkbox) => {
-			checkbox.addEventListener("change", () => {
-				const termQueryObj = buildTermQueryObj(filterContainer, taxArray);
+		Array.from(checkboxes as NodeListOf<HTMLInputElement>).forEach(
+			(checkbox) => {
+				checkbox.addEventListener("change", () => {
+					const termQueryObj = buildTermQueryObj(filterContainer, taxArray);
 
-				setState(pickupId, {
-					termQueryObj,
-					termParamObj: null, // ★ユーザー操作でURL由来を解除
-					page: 0, // ★1ページ目に戻す
+					setState(pickupId, {
+						termQueryObj,
+						termParamObj: null, // ★ユーザー操作でURL由来を解除
+						page: 0, // ★1ページ目に戻す
+					});
 				});
-			});
-		});
+			},
+		);
 	}
 }
 

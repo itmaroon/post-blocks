@@ -105,6 +105,7 @@ declare module "itmar-block-packages" {
 	export const restTaxonomies: any;
 	export const serializeBlockTree: any;
 	export const setState: any;
+	export const styleDataApply: any;
 	export const subscribe: any;
 	export const termToDispObj: any;
 	export const useBlockAttributeChanges: any;
@@ -128,15 +129,16 @@ declare module "lodash/isEqual" {
 }
 
 declare module "../../../../block-collections/src/blocks/design-group/StyleGroup" {
-	export const StyleComp: any;
+	export const createGroupStyleCss: any;
 }
 
 declare module "../../../../block-collections/src/blocks/design-title/StyleWapper" {
-	export const StyleComp: any;
+	export const createTitleInnerScope: any;
+	export const createTitleStyleCss: any;
 }
 
 declare module "../../../../block-collections/src/blocks/design-button/StyleButton" {
-	export const StyleComp: any;
+	export const createButtonStyleCss: any;
 }
 
 declare const itmar_option: {

@@ -7,6 +7,7 @@ import {
 	termToDispObj,
 	ensureCtx,
 	subscribe,
+	styleDataApply,
 } from "itmar-block-packages";
 import {
 	blockSupportStyleToReactStyle,
@@ -14,7 +15,30 @@ import {
 	mergeReactStyles,
 	toReactStyle,
 } from "../../front-common";
-import { StyleComp as StyleGroup } from "../../../../block-collections/src/blocks/design-group/StyleGroup";
+import { createGroupStyleCss } from "../../../../block-collections/src/blocks/design-group/StyleGroup";
+import {
+	createTitleInnerScope,
+	createTitleStyleCss,
+} from "../../../../block-collections/src/blocks/design-title/StyleWapper";
+
+const createTitleFrontendCss = (attributes, rootScope) =>
+	createTitleStyleCss(attributes, {
+		root: rootScope,
+		inner: createTitleInnerScope(rootScope),
+	});
+
+styleDataApply(createGroupStyleCss, ".itmar-query-crumbs-group", {
+	selector: ".itmar-wrap",
+	target: "outer",
+	classPrefix: "itmar-query-crumbs-group-style-",
+	observe: true,
+});
+
+styleDataApply(createTitleFrontendCss, ".itmar-query-crumbs-title", {
+	target: "self",
+	classPrefix: "itmar-query-crumbs-title-style-",
+	observe: true,
+});
 
 const roots = new Map();
 const getRoot = (el) => {
@@ -50,12 +74,7 @@ function paramToObject(prm, taxArray) {
 		});
 }
 
-function renderRichText(
-	richText,
-	titleType,
-	dateFormat,
-	headingType,
-) {
+function renderRichText(richText, titleType, dateFormat, headingType) {
 	const disp =
 		titleType === "date"
 			? format(dateFormat, richText, getSettings())
@@ -156,9 +175,10 @@ document.addEventListener("DOMContentLoaded", () => {
 			}
 
 			root.render(
-				<StyleGroup attributes={groupAttr} isMenuOpen={false}>
+				<div className="itmar-wrap">
 					<div
-						className={`wp-block-itmar-design-group ${groupClassName}`}
+						className={`wp-block-itmar-design-group itmar-query-crumbs-group ${groupClassName}`}
+						data-attributes={JSON.stringify(groupAttr)}
 						style={groupStyle}
 					>
 						<div className="group_contents">
@@ -167,7 +187,7 @@ document.addEventListener("DOMContentLoaded", () => {
 								.map((crumb, i) => (
 									<div
 										key={i}
-										className={`wp-block-itmar-design-title ${titleClassName}`}
+										className={`wp-block-itmar-design-title itmar-query-crumbs-title ${titleClassName}`}
 										data-attributes={JSON.stringify({
 											...crumbAttr,
 											block_style: title_style,
@@ -188,7 +208,7 @@ document.addEventListener("DOMContentLoaded", () => {
 								))}
 						</div>
 					</div>
-				</StyleGroup>,
+				</div>,
 			);
 		};
 

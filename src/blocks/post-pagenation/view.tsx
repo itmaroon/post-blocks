@@ -1,18 +1,51 @@
 import { createElement } from "react";
 import { createRoot } from "react-dom/client";
 
-import { StyleComp as StyleButton } from "../../../../block-collections/src/blocks/design-button/StyleButton";
-import { StyleComp as StyleGroup } from "../../../../block-collections/src/blocks/design-group/StyleGroup";
-import { StyleComp as StyleTitle } from "../../../../block-collections/src/blocks/design-title/StyleWapper";
+import { createButtonStyleCss } from "../../../../block-collections/src/blocks/design-button/StyleButton";
+import { createGroupStyleCss } from "../../../../block-collections/src/blocks/design-group/StyleGroup";
+import {
+	createTitleInnerScope,
+	createTitleStyleCss,
+} from "../../../../block-collections/src/blocks/design-title/StyleWapper";
 
 // ★pickupStore のパスはあなたの配置に合わせてください
-import { ensureCtx, subscribe, setState } from "itmar-block-packages";
+import {
+	ensureCtx,
+	setState,
+	styleDataApply,
+	subscribe,
+} from "itmar-block-packages";
 import {
 	blockSupportStyleToReactStyle,
 	buildBlockSupportClasses,
 	mergeReactStyles,
 	toReactStyle,
 } from "../../front-common";
+
+const createTitleFrontendCss = (attributes, rootScope) =>
+	createTitleStyleCss(attributes, {
+		root: rootScope,
+		inner: createTitleInnerScope(rootScope),
+	});
+
+styleDataApply(createGroupStyleCss, ".itmar-query-pagination-group", {
+	selector: ".itmar-wrap",
+	target: "outer",
+	classPrefix: "itmar-query-pagination-group-style-",
+	observe: true,
+});
+
+styleDataApply(createButtonStyleCss, ".itmar-query-pagination-button", {
+	target: "self",
+	classPrefix: "itmar-query-pagination-button-style-",
+	observe: true,
+});
+
+styleDataApply(createTitleFrontendCss, ".itmar-query-pagination-title", {
+	target: "self",
+	classPrefix: "itmar-query-pagination-title-style-",
+	observe: true,
+});
 
 const roots = new Map<Element, ReturnType<typeof createRoot>>();
 const getRoot = (el: Element) => {
@@ -37,16 +70,26 @@ const DesignGroup = ({ attributes, children = null }) => {
 	const groupClassName = buildBlockSupportClasses(groupAttributes);
 
 	return (
-		<StyleGroup attributes={groupAttributes} isMenuOpen={false}>
+		<div className="itmar-wrap">
 			<div
-				className={`wp-block-itmar-design-group ${groupClassName}`}
+				className={`wp-block-itmar-design-group itmar-query-pagination-group ${groupClassName}`}
+				data-attributes={JSON.stringify(groupAttributes)}
 				style={groupStyle}
 			>
 				<div className="group_contents">{children}</div>
 			</div>
-		</StyleGroup>
+		</div>
 	);
 };
+
+const DesignButton = ({ attributes, children = null }: any) => (
+	<div
+		className="itmar-query-pagination-button"
+		data-attributes={JSON.stringify(attributes)}
+	>
+		{children}
+	</div>
+);
 
 const AdjacentPostLink = ({ post, attributes }) => {
 	if (!post?.link) return null;
@@ -62,33 +105,31 @@ const AdjacentPostLink = ({ post, attributes }) => {
 	const isBlank = Boolean(titleAttributes.isBlank);
 
 	return (
-		<StyleTitle attributes={titleAttributes}>
-			<div
-				className={`wp-block-itmar-design-title ${titleClassName}`}
-				data-attributes={JSON.stringify({
-					...titleAttributes,
-					block_style: blockStyle,
-				})}
-				data-title_type={titleAttributes.titleType || "plaine"}
-				data-user_format={titleAttributes.userFormat || ""}
-				data-free_format={titleAttributes.freeStrFormat || "%s"}
-				data-decimal={titleAttributes.decimal || 0}
-				data-unique_id={titleAttributes.uniqueID || ""}
-				style={titleStyle}
+		<div
+			className={`wp-block-itmar-design-title itmar-query-pagination-title ${titleClassName}`}
+			data-attributes={JSON.stringify({
+				...titleAttributes,
+				block_style: blockStyle,
+			})}
+			data-title_type={titleAttributes.titleType || "plaine"}
+			data-user_format={titleAttributes.userFormat || ""}
+			data-free_format={titleAttributes.freeStrFormat || "%s"}
+			data-decimal={titleAttributes.decimal || 0}
+			data-unique_id={titleAttributes.uniqueID || ""}
+			style={titleStyle}
+		>
+			<a
+				href={post.link}
+				target={isBlank ? "_blank" : undefined}
+				rel={isBlank ? "noopener noreferrer" : undefined}
 			>
-				<a
-					href={post.link}
-					target={isBlank ? "_blank" : undefined}
-					rel={isBlank ? "noopener noreferrer" : undefined}
-				>
-					<div className="itmar-wrap">
-						{createElement(headingType, {
-							dangerouslySetInnerHTML: { __html: headingContent },
-						})}
-					</div>
-				</a>
-			</div>
-		</StyleTitle>
+				<div className="itmar-wrap">
+					{createElement(headingType, {
+						dangerouslySetInnerHTML: { __html: headingContent },
+					})}
+				</div>
+			</a>
+		</div>
 	);
 };
 
@@ -164,7 +205,7 @@ document.addEventListener("DOMContentLoaded", () => {
 				root.render(
 					<DesignGroup attributes={groupAttrAll}>
 						{isArrow && (
-							<StyleButton attributes={bkAttr}>
+							<DesignButton attributes={bkAttr}>
 								<button
 									type="button"
 									onClick={() =>
@@ -175,24 +216,24 @@ document.addEventListener("DOMContentLoaded", () => {
 								>
 									<div />
 								</button>
-							</StyleButton>
+							</DesignButton>
 						)}
 
 						{pages.map((p, idx) => {
 							if (p === "…") {
 								return (
-									<StyleButton key={`d-${idx}`} attributes={dummyAttr}>
+									<DesignButton key={`d-${idx}`} attributes={dummyAttr}>
 										<button type="button" disabled>
 											<div>…</div>
 										</button>
-									</StyleButton>
+									</DesignButton>
 								);
 							}
 
 							const pageNumber = Number(p);
 							const isCurrent = pageNumber === currentPage;
 							return (
-								<StyleButton key={`p-${p}`} attributes={numAttr}>
+								<DesignButton key={`p-${p}`} attributes={numAttr}>
 									<button
 										type="button"
 										onClick={() => setState(pickupId, { page: pageNumber })}
@@ -200,12 +241,12 @@ document.addEventListener("DOMContentLoaded", () => {
 									>
 										<div>{pageNumber + 1}</div>
 									</button>
-								</StyleButton>
+								</DesignButton>
 							);
 						})}
 
 						{isArrow && (
-							<StyleButton attributes={fwAttr}>
+							<DesignButton attributes={fwAttr}>
 								<button
 									type="button"
 									onClick={() =>
@@ -216,7 +257,7 @@ document.addEventListener("DOMContentLoaded", () => {
 								>
 									<div />
 								</button>
-							</StyleButton>
+							</DesignButton>
 						)}
 					</DesignGroup>,
 				);

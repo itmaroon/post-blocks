@@ -135,23 +135,6 @@ function buildTermQueryObj(filterContainer, taxArray) {
 function removeCheckboxBlock(checkbox: HTMLInputElement) {
 	const filterCheckboxElement = checkbox.closest(".itmar_filter_checkbox");
 	if (!filterCheckboxElement) return;
-
-	const blockElement = filterCheckboxElement.parentElement;
-	const next = blockElement?.nextElementSibling;
-
-	if (blockElement) {
-		blockElement.remove();
-		if (
-			next &&
-			next.tagName === "DIV" &&
-			next.childElementCount === 0 &&
-			(next.textContent || "").trim() === ""
-		) {
-			next.remove();
-		}
-		return;
-	}
-
 	filterCheckboxElement.remove();
 }
 
@@ -229,14 +212,17 @@ function pruneInvalidCheckboxes(filterContainer: Element, taxArray) {
 		const checkboxes = taxGroup.querySelectorAll(
 			'.itmar_filter_checkbox input[type="checkbox"]',
 		);
+		const groupContents =
+			Array.from(taxGroup.children).find((child) =>
+				child.classList.contains("group_contents"),
+			) || taxGroup;
 		const renderedSet = new Set();
 		let template: Element | null = null;
 
 		Array.from(checkboxes as NodeListOf<HTMLInputElement>).forEach(
 			(checkbox) => {
 				const checkboxName = checkbox.getAttribute("name");
-				const blockElement = checkbox.closest(".itmar_filter_checkbox")
-					?.parentElement;
+				const blockElement = checkbox.closest(".itmar_filter_checkbox");
 
 				if (blockElement && !template) {
 					template = blockElement.cloneNode(true) as Element;
@@ -262,11 +248,10 @@ function pruneInvalidCheckboxes(filterContainer: Element, taxArray) {
 			if (!input) continue;
 
 			frag.appendChild(clone);
-			frag.appendChild(document.createElement("div"));
 			renderedSet.add(termKey);
 		}
 
-		taxGroup.appendChild(frag);
+		groupContents.appendChild(frag);
 	});
 }
 

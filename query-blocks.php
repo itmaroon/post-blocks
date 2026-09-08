@@ -6,7 +6,7 @@
  * Description:       A collection of blocks that display WordPress posts
  * Requires at least: 6.4
  * Requires PHP:      8.1.22
- * Version:           2.0.2
+ * Version:           2.0.3
  * Author:            Web Creator ITmaroon
  * License:           GPL-2.0-or-later
  * License URI:       https://www.gnu.org/licenses/gpl-2.0.html
@@ -144,11 +144,13 @@ function itmar_search_endpoint($request)
 	}, array_filter($custom_fields, function ($field) {
 		return strpos($field, 'meta_') === 0;
 	}));
-	// $acf_fields = array_map(function ($field) {
-	// 	return str_replace('acf_', '', $field);
-	// }, array_filter($custom_fields, function ($field) {
-	// 	return strpos($field, 'acf_') === 0;
-	// }));
+	$acf_fields = array_values(array_unique(array_map(function ($field) {
+		// グループ配下の指定（例: acf_prices.list_price）は親フィールドを取得する
+		$field_path = substr($field, 4);
+		return explode('.', $field_path, 2)[0];
+	}, array_filter($custom_fields, function ($field) {
+		return strpos($field, 'acf_') === 0;
+	}))));
 
 	// 検索対象にしたいカスタムフィールドを取得
 	$custom_fields_prm = $request->get_param('search_fields');
@@ -306,13 +308,35 @@ function itmar_search_endpoint($request)
 
 			// ACFフィールドがある場合
 			if (function_exists('get_fields')) {
-				// foreach ($acf_fields as $field) {
-				// 	$post_data['acf'][$field] = get_field($field, $post_id);;
-				// }
-				//全てのACFフィールドを取得（グループフィールドも正常に取得される）
-				$acf_fields = get_fields($post_id);
-				if ($acf_fields) {
-					$post_data['acf'] = $acf_fields;
+				// 既存レスポンスとの互換性を保ちつつ、選択されたフィールドは明示的に取得する。
+				// get_fields() だけでは、親の参照メタがないグループフィールドが欠落する場合がある。
+				$all_acf_fields = get_fields($post_id);
+				if ($all_acf_fields) {
+					$post_data['acf'] = $all_acf_fields;
+				}
+				if (function_exists('get_field')) {
+					// 投稿に適用されるフィールド定義を名前からフィールドキーへ対応付ける。
+					// 親フィールドの参照メタがない環境でも、キー指定ならグループ値を復元できる。
+					$acf_field_keys = array();
+					if (function_exists('acf_get_field_groups') && function_exists('acf_get_fields')) {
+						$field_groups = acf_get_field_groups(array('post_id' => $post_id));
+						foreach ($field_groups as $field_group) {
+							$group_fields = acf_get_fields($field_group);
+							if (!$group_fields) {
+								continue;
+							}
+							foreach ($group_fields as $group_field) {
+								if (!empty($group_field['name']) && !empty($group_field['key'])) {
+									$acf_field_keys[$group_field['name']] = $group_field['key'];
+								}
+							}
+						}
+					}
+
+					foreach ($acf_fields as $field) {
+						$field_selector = isset($acf_field_keys[$field]) ? $acf_field_keys[$field] : $field;
+						$post_data['acf'][$field] = get_field($field_selector, $post_id);
+					}
 				}
 			}
 

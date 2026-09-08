@@ -3,7 +3,7 @@ Contributors:      itmaroon
 Tags:              block, post, taxsonomy, field, query
 Requires at least: 6.4
 Tested up to:      7.1
-Stable tag:        2.0.2
+Stable tag:        2.0.3
 License:           GPL-2.0-or-later
 License URI:       https://www.gnu.org/licenses/gpl-2.0.html
 Requires PHP: 8.2.10
@@ -76,6 +76,10 @@ OR…
 8. Post Pagination forward/backward navigation
 
 == Changelog ==
+= 2.0.3 =
+- Fixed retrieval of selected ACF group fields when migrated posts do not contain the parent field reference metadata.
+- Updated the bundled `itmar-block-packages` dependency to version 3.2.4 so taxonomy filters can load their items on the front end.
+
 = 2.0.2 =
 - Composer component fixed.
 
